@@ -1,0 +1,135 @@
+name: Flask CI/CD
+
+on:
+  push:
+    branches:
+      - main
+      - staging
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.runCommand({ping:1})'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run test suite
+        env:
+          MONGO_URI: mongodb://localhost:27017/test_student_db
+          SECRET_KEY: github-actions-test-key
+        run: pytest test_app.py
+
+  deploy-staging:
+    name: Deploy to Staging
+    needs: build-and-test
+    if: github.ref == 'refs/heads/staging' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Deploy over SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          MONGO_URI: ${{ secrets.MONGO_URI }}
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts
+
+          ssh -i ~/.ssh/id_rsa "$SERVER_USER@$SERVER_HOST" bash -s <<EOF
+            set -e
+            mkdir -p ~/staging-app
+            cd ~/staging-app
+            if [ -d .git ]; then
+              git fetch origin
+              git checkout staging
+              git reset --hard origin/staging
+            else
+              git clone --branch staging https://github.com/${{ github.repository }}.git .
+            fi
+
+            python3 -m venv venv
+            venv/bin/pip install --upgrade pip
+            venv/bin/pip install -r requirements.txt
+
+            echo "MONGO_URI=$MONGO_URI" > .env
+            echo "SECRET_KEY=$SECRET_KEY" >> .env
+
+            fuser -k 5000/tcp || true
+            nohup venv/bin/python app.py > flask_app_staging.log 2>&1 &
+            sleep 5
+            curl -f http://localhost:5000
+          EOF
+
+  deploy-production:
+    name: Deploy to Production
+    needs: build-and-test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Deploy over SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          MONGO_URI: ${{ secrets.MONGO_URI }}
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts
+
+          ssh -i ~/.ssh/id_rsa "$SERVER_USER@$SERVER_HOST" bash -s <<EOF
+            set -e
+            mkdir -p ~/production-app
+            cd ~/production-app
+            if [ -d .git ]; then
+              git fetch origin --tags
+              git checkout ${GITHUB_REF_NAME}
+            else
+              git clone https://github.com/${{ github.repository }}.git .
+              git checkout ${GITHUB_REF_NAME}
+            fi
+
+            python3 -m venv venv
+            venv/bin/pip install --upgrade pip
+            venv/bin/pip install -r requirements.txt
+
+            echo "MONGO_URI=$MONGO_URI" > .env
+            echo "SECRET_KEY=$SECRET_KEY" >> .env
+
+            fuser -k 5001/tcp || true
+            nohup venv/bin/python -c "from app import app; app.run(host='0.0.0.0', port=5001)" > flask_app_production.log 2>&1 &
+            sleep 5
+            curl -f http://localhost:5001
+          EOF
