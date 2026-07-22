@@ -86,7 +86,11 @@ jobs:
             fuser -k 5000/tcp || true
             nohup venv/bin/python app.py > flask_app_staging.log 2>&1 &
             sleep 5
-            curl -f http://localhost:5000
+            if ! curl -sf http://localhost:5000 -o /tmp/curl_body.html; then
+              echo "Health check failed. --- flask_app_staging.log ---"
+              cat flask_app_staging.log
+              exit 1
+            fi
           EOF
 
   deploy-production:
@@ -131,5 +135,9 @@ jobs:
             fuser -k 5001/tcp || true
             nohup venv/bin/python -c "from app import app; app.run(host='0.0.0.0', port=5001)" > flask_app_production.log 2>&1 &
             sleep 5
-            curl -f http://localhost:5001
+            if ! curl -sf http://localhost:5001 -o /tmp/curl_body.html; then
+              echo "Health check failed. --- flask_app_production.log ---"
+              cat flask_app_production.log
+              exit 1
+            fi
           EOF
