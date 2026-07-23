@@ -171,6 +171,11 @@ A `Jenkinsfile` at the repository root defines three stages:
 
 The Pipeline job itself was created via *Pipeline script from SCM* → Git → repo URL → branch `*/main` → script path `Jenkinsfile`, then run once manually so Jenkins registers the `githubPush()` trigger declared in the file (see Triggers below).
 
+A completed run showing the Build → Test → Deploy stages passing end to end:
+<img width="900" alt="Jenkins job status showing successful build with no test failures" src="Screenshots/Screenshot 2026-07-23 214840.png" />
+<img width="900" alt="Jenkins build #9 detail page showing git revision and passing tests" src="Screenshots/Screenshot 2026-07-23 214857.png" />
+<img width="900" alt="Jenkins console output showing the pipeline finishing with SUCCESS" src="Screenshots/Screenshot 2026-07-23 214912.png" />
+
 ### 4. Triggers
 
 The `Jenkinsfile` declares `triggers { githubPush() }`, paired with a GitHub webhook — every push to `main` starts a new build automatically. The Pipeline job also has "GitHub hook trigger for GITScm polling" checked.
@@ -184,6 +189,9 @@ The `Jenkinsfile` declares `triggers { githubPush() }`, paired with a GitHub web
 A `post { success / failure }` block in the `Jenkinsfile` emails the build result either way via the **Email Extension plugin**, attaching `flask_app.log` on failure. SMTP was configured under **both** "E-mail Notification" and "Extended E-mail Notification" (Manage Jenkins → System) using Gmail (`smtp.gmail.com:465`, SSL, an App Password generated after enabling 2-Step Verification — a normal Gmail password is rejected with `530 5.7.0 Authentication Required`).
 <img width="900" alt="Jenkins Extended E-mail Notification SMTP config" src="Screenshots/Screenshot 2026-07-23 010854.png" />
 <img width="900" alt="Jenkins Extended E-mail Notification saved" src="Screenshots/Screenshot 2026-07-23 011833.png" />
+
+Success notification email received after a passing build:
+<img width="900" alt="Received SUCCESS email for flask-cicd build" src="Screenshots/Screenshot 2026-07-23 214956.png" />
 
 ---
 
